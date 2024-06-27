@@ -14,10 +14,10 @@
 // limitations under the License.
 
 import 'dart:async';
-import 'dart:html';
 import 'dart:typed_data';
 
-import 'package:meta/meta.dart';
+import 'package:http/browser_client.dart';
+import 'package:http/http.dart';
 
 import '../../client/call.dart';
 import '../../shared/message.dart';
@@ -30,11 +30,12 @@ import 'web_streams.dart';
 const _contentTypeKey = 'Content-Type';
 
 class XhrTransportStream implements GrpcTransportStream {
-  final HttpRequest _request;
+  final BrowserClient _client;
+  final Map<String, String> headers;
+  final Uri uri;
   final ErrorHandler _onError;
+
   final Function(XhrTransportStream stream) _onDone;
-  bool _headersReceived = false;
-  int _requestBytesRead = 0;
   final StreamController<ByteBuffer> _incomingProcessor = StreamController();
   final StreamController<GrpcMessage> _incomingMessages = StreamController();
   final StreamController<List<int>> _outgoingMessages = StreamController();
@@ -45,89 +46,76 @@ class XhrTransportStream implements GrpcTransportStream {
   @override
   StreamSink<List<int>> get outgoingMessages => _outgoingMessages.sink;
 
-  XhrTransportStream(this._request,
-      {required ErrorHandler onError, required onDone})
-      : _onError = onError,
+  XhrTransportStream(
+    this._client,
+    this.headers,
+    this.uri, {
+    required ErrorHandler onError,
+    required onDone,
+  })  : _onError = onError,
         _onDone = onDone {
-    _outgoingMessages.stream
-        .map(frame)
-        .listen((data) => _request.send(data), cancelOnError: true);
-
-    _request.onReadyStateChange.listen((data) {
-      if (_incomingProcessor.isClosed) {
-        return;
-      }
-      switch (_request.readyState) {
-        case HttpRequest.HEADERS_RECEIVED:
-          _onHeadersReceived();
-          break;
-        case HttpRequest.DONE:
-          _onRequestDone();
-          _close();
-          break;
-      }
-    });
-
-    _request.onError.listen((ProgressEvent event) {
-      if (_incomingProcessor.isClosed) {
-        return;
-      }
-      _onError(GrpcError.unavailable('XhrConnection connection-error'),
-          StackTrace.current);
-      terminate();
-    });
-
-    _request.onProgress.listen((_) {
-      if (_incomingProcessor.isClosed) {
-        return;
-      }
-      // Use response over responseText as most browsers don't support
-      // using responseText during an onProgress event.
-      final responseString = _request.response as String;
-      final bytes = Uint8List.fromList(
-              responseString.substring(_requestBytesRead).codeUnits)
-          .buffer;
-      _requestBytesRead = responseString.length;
-      _incomingProcessor.add(bytes);
-    });
-
-    _incomingProcessor.stream
-        .transform(GrpcWebDecoder())
-        .transform(grpcDecompressor())
-        .listen(_incomingMessages.add,
-            onError: _onError, onDone: _incomingMessages.close);
+    _outgoingMessages.stream.map(frame).listen(
+      (data) {
+        final request = Request('POST', uri);
+        request.headers.addAll(headers);
+        request.bodyBytes = data;
+        _client.send(request).then(
+          (streamedResponse) async {
+            final response = await Response.fromStream(streamedResponse);
+            _incomingMessages.add(GrpcMetadata(response.headers));
+            final valid = _validateResponseState(
+              response.statusCode,
+              response.headers,
+              rawResponse: response.body,
+            );
+            if (valid) {
+              if (!_incomingProcessor.isClosed) {
+                _incomingProcessor.add(response.bodyBytes.buffer);
+                _incomingProcessor.stream
+                    .transform(GrpcWebDecoder())
+                    .transform(grpcDecompressor())
+                    .listen(
+                  (data) {
+                    _incomingMessages.add(data);
+                  },
+                  onError: _onError,
+                  onDone: _incomingMessages.close,
+                );
+              }
+            }
+            _close();
+          },
+          onError: (_) {
+            if (_incomingProcessor.isClosed) {
+              return;
+            }
+            _onError(
+              GrpcError.unavailable('XhrConnection connection-error'),
+              StackTrace.current,
+            );
+            terminate();
+          },
+        );
+      },
+      cancelOnError: true,
+    );
   }
 
-  bool _validateResponseState() {
+  bool _validateResponseState(
+    int? httpStatus,
+    Map<String, String> headers, {
+    Object? rawResponse,
+  }) {
     try {
       validateHttpStatusAndContentType(
-          _request.status, _request.responseHeaders,
-          rawResponse: _request.responseText);
+        httpStatus,
+        headers,
+        rawResponse: rawResponse,
+      );
       return true;
     } catch (e, st) {
       _onError(e, st);
       return false;
-    }
-  }
-
-  void _onHeadersReceived() {
-    _headersReceived = true;
-    if (!_validateResponseState()) {
-      return;
-    }
-    _incomingMessages.add(GrpcMetadata(_request.responseHeaders));
-  }
-
-  void _onRequestDone() {
-    if (!_headersReceived && !_validateResponseState()) {
-      return;
-    }
-    if (_request.response == null) {
-      _onError(
-          GrpcError.unavailable('XhrConnection request null response', null,
-              _request.responseText),
-          StackTrace.current);
-      return;
     }
   }
 
@@ -140,7 +128,7 @@ class XhrTransportStream implements GrpcTransportStream {
   @override
   Future<void> terminate() async {
     _close();
-    _request.abort();
+    _client.close();
   }
 }
 
@@ -153,25 +141,18 @@ class XhrClientConnection implements ClientConnection {
 
   @override
   String get authority => uri.authority;
+
   @override
   String get scheme => uri.scheme;
 
-  void _initializeRequest(HttpRequest request, Map<String, String> metadata) {
-    for (final header in metadata.keys) {
-      request.setRequestHeader(header, metadata[header]!);
-    }
-    // Overriding the mimetype allows us to stream and parse the data
-    request.overrideMimeType('text/plain; charset=x-user-defined');
-    request.responseType = 'text';
-  }
-
-  @visibleForTesting
-  HttpRequest createHttpRequest() => HttpRequest();
-
   @override
-  GrpcTransportStream makeRequest(String path, Duration? timeout,
-      Map<String, String> metadata, ErrorHandler onError,
-      {CallOptions? callOptions}) {
+  GrpcTransportStream makeRequest(
+    String path,
+    Duration? timeout,
+    Map<String, String> metadata,
+    ErrorHandler onError, {
+    CallOptions? callOptions,
+  }) {
     // gRPC-web headers.
     if (_getContentTypeHeader(metadata) == null) {
       metadata['Content-Type'] = 'application/grpc-web+proto';
@@ -185,16 +166,18 @@ class XhrClientConnection implements ClientConnection {
       requestUri = cors.moveHttpHeadersToQueryParam(metadata, requestUri);
     }
 
-    final request = createHttpRequest();
-    request.open('POST', requestUri.toString());
+    final client = BrowserClient();
     if (callOptions is WebCallOptions && callOptions.withCredentials == true) {
-      request.withCredentials = true;
+      client.withCredentials = true;
     }
     // Must set headers after calling open().
-    _initializeRequest(request, metadata);
-
-    final transportStream =
-        XhrTransportStream(request, onError: onError, onDone: _removeStream);
+    final transportStream = XhrTransportStream(
+      client,
+      metadata,
+      requestUri,
+      onError: onError,
+      onDone: _removeStream,
+    );
     _requests.add(transportStream);
     return transportStream;
   }
@@ -205,7 +188,7 @@ class XhrClientConnection implements ClientConnection {
 
   @override
   Future<void> terminate() async {
-    for (var request in List.of(_requests)) {
+    for (final request in List.of(_requests)) {
       request.terminate();
     }
   }
@@ -225,7 +208,7 @@ class XhrClientConnection implements ClientConnection {
 }
 
 MapEntry<String, String>? _getContentTypeHeader(Map<String, String> metadata) {
-  for (var entry in metadata.entries) {
+  for (final entry in metadata.entries) {
     if (entry.key.toLowerCase() == _contentTypeKey.toLowerCase()) {
       return entry;
     }

@@ -14,7 +14,7 @@
 // limitations under the License.
 
 import 'dart:async';
-import 'dart:html';
+import 'package:web/web.dart';
 
 import 'src/generated/echo.pbgrpc.dart';
 
@@ -55,14 +55,19 @@ class EchoApp {
     _addMessage(message, 'label-default pull-right');
   }
 
-  void _addMessage(String message, String cssClass) {
-    final classes = cssClass.split(' ');
-    querySelector('#first')!.after(DivElement()
-      ..classes.add('row')
-      ..append(Element.tag('h2')
-        ..append(SpanElement()
-          ..classes.add('label')
-          ..classes.addAll(classes)
-          ..text = message)));
+  void _addMessage(String message, String cssClassArray) {
+    final cssClasses = cssClassArray.split(' ');
+    final spanLabel = HTMLSpanElement()..classList.add('label');
+    for (final cssClass in cssClasses) {
+      spanLabel.classList.add(cssClass);
+    }
+    spanLabel.text = message;
+    document.querySelector('#first')!.after(
+          HTMLDivElement()
+            ..classList.add('row')
+            ..append(
+              document.createElement('h2')..append(spanLabel),
+            ),
+        );
   }
 }

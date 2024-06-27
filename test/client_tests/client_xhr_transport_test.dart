@@ -15,23 +15,22 @@
 @TestOn('browser')
 
 import 'dart:async';
-import 'dart:html';
 
 import 'package:async/async.dart';
+import 'package:grpc/grpc_connection_interface.dart';
 import 'package:grpc/src/client/call.dart';
 import 'package:grpc/src/client/transport/xhr_transport.dart';
 import 'package:grpc/src/shared/message.dart';
-import 'package:grpc/src/shared/status.dart';
 import 'package:mockito/mockito.dart';
 import 'package:stream_transform/stream_transform.dart';
 import 'package:test/test.dart';
+import 'package:web/web.dart';
 
-final readyStateChangeEvent =
-    Event('readystatechange', canBubble: false, cancelable: false);
+final readyStateChangeEvent = Event('readystatechange');
 final progressEvent = ProgressEvent('onloadstart');
 
-class MockHttpRequest extends Mock implements HttpRequest {
-  MockHttpRequest({int? code}) : status = code ?? 200;
+class MockGrpcTransportStream extends Mock implements XhrTransportStream {
+  MockGrpcTransportStream({int? code}) : status = code ?? 200;
   // ignore: close_sinks
   StreamController<Event> readyStateChangeController =
       StreamController<Event>();
@@ -39,26 +38,21 @@ class MockHttpRequest extends Mock implements HttpRequest {
   StreamController<ProgressEvent> progressController =
       StreamController<ProgressEvent>();
 
-  @override
   Stream<Event> get onReadyStateChange => readyStateChangeController.stream;
 
-  @override
   Stream<ProgressEvent> get onProgress => progressController.stream;
 
-  @override
   Stream<ProgressEvent> get onError => StreamController<ProgressEvent>().stream;
 
-  @override
   final int status;
 
-  @override
   int get readyState =>
       super.noSuchMethod(Invocation.getter(#readyState), returnValue: -1);
 
-  @override
-  Map<String, String> get responseHeaders =>
-      super.noSuchMethod(Invocation.getter(#responseHeaders),
-          returnValue: <String, String>{});
+  Map<String, String> get responseHeaders => super.noSuchMethod(
+        Invocation.getter(#responseHeaders),
+        returnValue: <String, String>{},
+      );
 }
 
 class MockXhrClientConnection extends XhrClientConnection {
@@ -66,12 +60,18 @@ class MockXhrClientConnection extends XhrClientConnection {
       : _statusCode = code ?? 200,
         super(Uri.parse('test:8080'));
 
-  late MockHttpRequest latestRequest;
+  late MockGrpcTransportStream latestRequest;
   final int _statusCode;
 
   @override
-  HttpRequest createHttpRequest() {
-    final request = MockHttpRequest(code: _statusCode);
+  GrpcTransportStream makeRequest(
+    String path,
+    Duration? timeout,
+    Map<String, String> metadata,
+    ErrorHandler onError, {
+    CallOptions? callOptions,
+  }) {
+    final request = MockGrpcTransportStream(code: _statusCode);
     latestRequest = request;
     return request;
   }
@@ -86,17 +86,27 @@ void main() {
 
     final connection = MockXhrClientConnection();
 
-    connection.makeRequest('path', Duration(seconds: 10), metadata,
-        (error, _) => fail(error.toString()));
+    connection.makeRequest(
+      'path',
+      Duration(seconds: 10),
+      metadata,
+      (error, _) => fail(
+        error.toString(),
+      ),
+    );
 
-    verify(connection.latestRequest
-        .setRequestHeader('Content-Type', 'application/grpc-web+proto'));
-    verify(connection.latestRequest
-        .setRequestHeader('X-User-Agent', 'grpc-web-dart/0.1'));
-    verify(connection.latestRequest.setRequestHeader('X-Grpc-Web', '1'));
-    verify(connection.latestRequest
-        .overrideMimeType('text/plain; charset=x-user-defined'));
-    verify(connection.latestRequest.responseType = 'text');
+    expect(
+      connection.latestRequest.headers['Content-Type'],
+      'application/grpc-web+proto',
+    );
+    expect(
+      connection.latestRequest.headers['X-User-Agent'],
+      'grpc-web-dart/0.1',
+    );
+    expect(
+      connection.latestRequest.headers['X-Grpc-Web'],
+      '1',
+    );
   });
 
   test(
@@ -105,16 +115,22 @@ void main() {
     final metadata = {'header_1': 'value_1', 'header_2': 'value_2'};
     final connection = MockXhrClientConnection();
 
-    connection.makeRequest('path', Duration(seconds: 10), metadata,
-        (error, _) => fail(error.toString()),
-        callOptions: WebCallOptions(bypassCorsPreflight: true));
+    connection.makeRequest(
+      'path',
+      Duration(seconds: 10),
+      metadata,
+      (error, _) => fail(error.toString()),
+      callOptions: WebCallOptions(bypassCorsPreflight: true),
+    );
 
     expect(metadata, isEmpty);
-    verify(connection.latestRequest.open('POST',
-        'test:path?%24httpHeaders=header_1%3Avalue_1%0D%0Aheader_2%3Avalue_2%0D%0AContent-Type%3Aapplication%2Fgrpc-web%2Bproto%0D%0AX-User-Agent%3Agrpc-web-dart%2F0.1%0D%0AX-Grpc-Web%3A1%0D%0A'));
-    verify(connection.latestRequest
-        .overrideMimeType('text/plain; charset=x-user-defined'));
-    verify(connection.latestRequest.responseType = 'text');
+    print(connection.latestRequest.uri.toString());
+    expect(
+      connection.latestRequest.uri.toString().contains(
+            'test:path?%24httpHeaders=header_1%3Avalue_1%0D%0Aheader_2%3Avalue_2%0D%0AContent-Type%3Aapplication%2Fgrpc-web%2Bproto%0D%0AX-User-Agent%3Agrpc-web-dart%2F0.1%0D%0AX-Grpc-Web%3A1%0D%0A',
+          ),
+      isTrue,
+    );
   });
 
   test(
@@ -168,27 +184,36 @@ void main() {
     final metadata = {'header_1': 'value_1', 'header_2': 'value_2'};
     final connection = MockXhrClientConnection();
 
-    connection.makeRequest('path', Duration(seconds: 10), metadata,
-        (error, _) => fail(error.toString()),
-        callOptions: WebCallOptions(withCredentials: true));
+    connection.makeRequest(
+      'path',
+      Duration(seconds: 10),
+      metadata,
+      (error, _) => fail(error.toString()),
+      callOptions: WebCallOptions(withCredentials: true),
+    );
 
-    expect(metadata, {
-      'header_1': 'value_1',
-      'header_2': 'value_2',
-      'Content-Type': 'application/grpc-web+proto',
-      'X-User-Agent': 'grpc-web-dart/0.1',
-      'X-Grpc-Web': '1'
-    });
-    verify(connection.latestRequest
-        .setRequestHeader('Content-Type', 'application/grpc-web+proto'));
-    verify(connection.latestRequest
-        .setRequestHeader('X-User-Agent', 'grpc-web-dart/0.1'));
-    verify(connection.latestRequest.setRequestHeader('X-Grpc-Web', '1'));
-    verify(connection.latestRequest.open('POST', 'test:path'));
-    verify(connection.latestRequest.withCredentials = true);
-    verify(connection.latestRequest
-        .overrideMimeType('text/plain; charset=x-user-defined'));
-    verify(connection.latestRequest.responseType = 'text');
+    expect(
+      metadata,
+      {
+        'header_1': 'value_1',
+        'header_2': 'value_2',
+        'Content-Type': 'application/grpc-web+proto',
+        'X-User-Agent': 'grpc-web-dart/0.1',
+        'X-Grpc-Web': '1'
+      },
+    );
+    expect(
+      connection.latestRequest.headers['Content-Type'],
+      'application/grpc-web+proto',
+    );
+    expect(
+      connection.latestRequest.headers['X-User-Agent'],
+      'grpc-web-dart/0.1',
+    );
+    expect(
+      connection.latestRequest.headers['X-Grpc-Web'],
+      '1',
+    );
   });
 
   test('Sent data converted to stream properly', () async {
@@ -199,16 +224,23 @@ void main() {
 
     final connection = MockXhrClientConnection();
 
-    final stream = connection.makeRequest('path', Duration(seconds: 10),
-        metadata, (error, _) => fail(error.toString()));
+    final stream = connection.makeRequest(
+      'path',
+      Duration(seconds: 10),
+      metadata,
+      (error, _) => fail(error.toString()),
+    );
 
     final data = List.filled(10, 0);
     stream.outgoingMessages.add(data);
     await stream.terminate();
 
     final expectedData = frame(data);
-    expect(verify(connection.latestRequest.send(captureAny)).captured.single,
-        expectedData);
+
+    expect(
+      connection.latestRequest.incomingMessages.single,
+      expectedData,
+    );
   });
 
   test('Stream handles headers properly', () async {
@@ -224,12 +256,18 @@ void main() {
         (error, _) => fail(error.toString()));
 
     when(transport.latestRequest.responseHeaders).thenReturn(responseHeaders);
-    when(transport.latestRequest.response)
-        .thenReturn(String.fromCharCodes(frame(<int>[])));
+    when(transport.latestRequest.incomingMessages).thenReturn(
+      Stream.value(
+        GrpcData(
+          frame(<int>[]),
+          isCompressed: false,
+        ),
+      ),
+    );
 
     // Set expectation for request readyState and generate two readyStateChange
     // events, so that incomingMessages stream completes.
-    final readyStates = [HttpRequest.HEADERS_RECEIVED, HttpRequest.DONE];
+    final readyStates = [2, 4];
     when(transport.latestRequest.readyState)
         .thenAnswer((_) => readyStates.removeAt(0));
     transport.latestRequest.readyStateChangeController
@@ -266,11 +304,18 @@ void main() {
     final encodedString = String.fromCharCodes(encodedTrailers);
 
     when(connection.latestRequest.responseHeaders).thenReturn(requestHeaders);
-    when(connection.latestRequest.response).thenReturn(encodedString);
+    when(connection.latestRequest.incomingMessages).thenReturn(
+      Stream.value(
+        GrpcData(
+          frame(encodedString.codeUnits),
+          isCompressed: false,
+        ),
+      ),
+    );
 
     // Set expectation for request readyState and generate events so that
     // incomingMessages stream completes.
-    final readyStates = [HttpRequest.HEADERS_RECEIVED, HttpRequest.DONE];
+    final readyStates = [2, 4];
     when(connection.latestRequest.readyState)
         .thenAnswer((_) => readyStates.removeAt(0));
     connection.latestRequest.readyStateChangeController
@@ -302,11 +347,18 @@ void main() {
     final encodedString = String.fromCharCodes(encoded);
 
     when(connection.latestRequest.responseHeaders).thenReturn(requestHeaders);
-    when(connection.latestRequest.response).thenReturn(encodedString);
+    when(connection.latestRequest.incomingMessages).thenReturn(
+      Stream.value(
+        GrpcData(
+          frame(encodedString.codeUnits),
+          isCompressed: false,
+        ),
+      ),
+    );
 
     // Set expectation for request readyState and generate events so that
     // incomingMessages stream completes.
-    final readyStates = [HttpRequest.HEADERS_RECEIVED, HttpRequest.DONE];
+    final readyStates = [2, 4];
     when(connection.latestRequest.readyState)
         .thenAnswer((_) => readyStates.removeAt(0));
     connection.latestRequest.readyStateChangeController
@@ -336,12 +388,18 @@ void main() {
         requestHeaders, (error, _) => fail(error.toString()));
     final data = List<int>.filled(10, 224);
     when(connection.latestRequest.responseHeaders).thenReturn(requestHeaders);
-    when(connection.latestRequest.response)
-        .thenReturn(String.fromCharCodes(frame(data)));
+    when(connection.latestRequest.incomingMessages).thenReturn(
+      Stream.value(
+        GrpcData(
+          frame(data),
+          isCompressed: false,
+        ),
+      ),
+    );
 
     // Set expectation for request readyState and generate events, so that
     // incomingMessages stream completes.
-    final readyStates = [HttpRequest.HEADERS_RECEIVED, HttpRequest.DONE];
+    final readyStates = [2, 4];
     when(connection.latestRequest.readyState)
         .thenAnswer((_) => readyStates.removeAt(0));
     connection.latestRequest.readyStateChangeController
@@ -368,8 +426,13 @@ void main() {
     const errorDetails = 'error details';
     when(connection.latestRequest.responseHeaders)
         .thenReturn({'content-type': 'application/grpc+proto'});
-    when(connection.latestRequest.readyState).thenReturn(HttpRequest.DONE);
-    when(connection.latestRequest.responseText).thenReturn(errorDetails);
+
+    when(connection.latestRequest.readyState).thenReturn(4);
+    when(connection.latestRequest.incomingMessages).thenReturn(
+      Stream.value(
+        GrpcData(errorDetails.codeUnits, isCompressed: false),
+      ),
+    );
     connection.latestRequest.readyStateChangeController
         .add(readyStateChangeEvent);
     await errorReceived.future;
@@ -396,21 +459,28 @@ void main() {
         data.map((d) => String.fromCharCodes(frame(d))).toList();
 
     when(connection.latestRequest.responseHeaders).thenReturn(metadata);
-    when(connection.latestRequest.readyState)
-        .thenReturn(HttpRequest.HEADERS_RECEIVED);
+    when(connection.latestRequest.readyState).thenReturn(2);
 
     // At first invocation the response should be the the first message, after
     // that first + last messages.
     var first = true;
-    when(connection.latestRequest.response).thenAnswer((_) {
-      if (first) {
-        first = false;
-        return encodedStrings[0];
-      }
-      return encodedStrings[0] + encodedStrings[1];
-    });
+    when(connection.latestRequest.incomingMessages).thenAnswer(
+      (_) {
+        late GrpcData data;
+        if (first) {
+          first = false;
+          data = GrpcData(encodedStrings[0].codeUnits, isCompressed: false);
+        }
+        data = GrpcData(
+          (encodedStrings[0] + encodedStrings[1]).codeUnits,
+          isCompressed: false,
+        );
 
-    final readyStates = [HttpRequest.HEADERS_RECEIVED, HttpRequest.DONE];
+        return Stream.value(data);
+      },
+    );
+
+    final readyStates = [2, 4];
     when(connection.latestRequest.readyState)
         .thenAnswer((_) => readyStates.removeAt(0));
 

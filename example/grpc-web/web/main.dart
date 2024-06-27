@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import 'dart:html';
+import 'package:web/web.dart';
 
 import 'package:grpc/grpc_web.dart';
 import 'package:grpc_web/app.dart';
@@ -23,10 +23,10 @@ void main() {
   final service = EchoServiceClient(channel);
   final app = EchoApp(service);
 
-  final button = querySelector('#send') as ButtonElement;
+  final button = document.querySelector('#send') as HTMLButtonElement;
   button.onClick.listen((e) async {
-    final msg = querySelector('#msg') as TextInputElement;
-    final value = msg.value!.trim();
+    final msg = document.querySelector('#msg') as HTMLInputElement;
+    final value = msg.value.trim();
     msg.value = '';
 
     if (value.isEmpty) return;

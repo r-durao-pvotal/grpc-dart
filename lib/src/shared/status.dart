@@ -23,8 +23,6 @@ import 'package:grpc/src/generated/google/rpc/status.pb.dart';
 import 'package:meta/meta.dart';
 import 'package:protobuf/protobuf.dart';
 
-import 'io_bits/io_bits.dart' show HttpStatus;
-
 class StatusCode {
   /// The operation completed successfully.
   static const ok = 0;
@@ -131,19 +129,19 @@ class StatusCode {
   /// Mapping taken from gRPC-Web JS implementation:
   /// https://github.com/grpc/grpc-web/blob/master/javascript/net/grpc/web/statuscode.js
   static const _httpStatusToGrpcStatus = <int, int>{
-    HttpStatus.ok: StatusCode.ok,
-    HttpStatus.badRequest: StatusCode.invalidArgument,
-    HttpStatus.unauthorized: StatusCode.unauthenticated,
-    HttpStatus.forbidden: StatusCode.permissionDenied,
-    HttpStatus.notFound: StatusCode.notFound,
-    HttpStatus.conflict: StatusCode.aborted,
-    HttpStatus.preconditionFailed: StatusCode.failedPrecondition,
-    HttpStatus.tooManyRequests: StatusCode.resourceExhausted,
-    HttpStatus.clientClosedRequest: StatusCode.cancelled,
-    HttpStatus.internalServerError: StatusCode.unknown,
-    HttpStatus.notImplemented: StatusCode.unimplemented,
-    HttpStatus.serviceUnavailable: StatusCode.unavailable,
-    HttpStatus.gatewayTimeout: StatusCode.deadlineExceeded,
+    200: StatusCode.ok,
+    400: StatusCode.invalidArgument,
+    401: StatusCode.unauthenticated,
+    403: StatusCode.permissionDenied,
+    404: StatusCode.notFound,
+    409: StatusCode.aborted,
+    412: StatusCode.failedPrecondition,
+    429: StatusCode.resourceExhausted,
+    499: StatusCode.cancelled,
+    500: StatusCode.unknown,
+    501: StatusCode.unimplemented,
+    503: StatusCode.unavailable,
+    504: StatusCode.deadlineExceeded,
   };
 
   /// Creates a gRPC Status code from a HTTP Status code
