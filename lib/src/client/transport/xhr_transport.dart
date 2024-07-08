@@ -18,6 +18,7 @@ import 'dart:typed_data';
 
 import 'package:http/browser_client.dart';
 import 'package:http/http.dart';
+import 'package:meta/meta.dart';
 
 import '../../client/call.dart';
 import '../../shared/message.dart';
@@ -61,29 +62,32 @@ class XhrTransportStream implements GrpcTransportStream {
         request.bodyBytes = data;
         _client.send(request).then(
           (streamedResponse) async {
-            final response = await Response.fromStream(streamedResponse);
-            _incomingMessages.add(GrpcMetadata(response.headers));
-            final valid = _validateResponseState(
-              response.statusCode,
-              response.headers,
-              rawResponse: response.body,
-            );
-            if (valid) {
-              if (!_incomingProcessor.isClosed) {
-                _incomingProcessor.add(response.bodyBytes.buffer);
-                _incomingProcessor.stream
-                    .transform(GrpcWebDecoder())
-                    .transform(grpcDecompressor())
-                    .listen(
-                  (data) {
-                    _incomingMessages.add(data);
-                  },
-                  onError: _onError,
-                  onDone: _incomingMessages.close,
+            Response.fromStream(streamedResponse).then(
+              (response) {
+                _incomingMessages.add(GrpcMetadata(response.headers));
+                final valid = _validateResponseState(
+                  response.statusCode,
+                  response.headers,
+                  rawResponse: response.body,
                 );
-              }
-            }
-            _close();
+                if (valid) {
+                  if (!_incomingProcessor.isClosed) {
+                    _incomingProcessor.add(response.bodyBytes.buffer);
+                    _incomingProcessor.stream
+                        .transform(GrpcWebDecoder())
+                        .transform(grpcDecompressor())
+                        .listen(
+                      (data) {
+                        _incomingMessages.add(data);
+                      },
+                      onError: _onError,
+                      onDone: _incomingMessages.close,
+                    );
+                  }
+                }
+                _close();
+              },
+            );
           },
           onError: (_) {
             if (_incomingProcessor.isClosed) {
@@ -138,6 +142,9 @@ class XhrClientConnection implements ClientConnection {
   final _requests = <XhrTransportStream>{};
 
   XhrClientConnection(this.uri);
+
+  @visibleForTesting
+  XhrTransportStream get latestRequest => _requests.last;
 
   @override
   String get authority => uri.authority;
