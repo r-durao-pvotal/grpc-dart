@@ -61,7 +61,7 @@ class XhrTransportStream implements GrpcTransportStream {
         request.headers.addAll(headers);
         request.bodyBytes = data;
         _client.send(request).then(
-          (streamedResponse) async {
+          (streamedResponse) {
             Response.fromStream(streamedResponse).then(
               (response) {
                 _incomingMessages.add(GrpcMetadata(response.headers));
@@ -85,8 +85,18 @@ class XhrTransportStream implements GrpcTransportStream {
                     );
                   }
                 }
-                _close();
               },
+            ).onError(
+              (e, stack) {
+                _onError(
+                  GrpcError.unavailable(
+                    'XhrConnection Streamed Response Error',
+                  ),
+                  stack,
+                );
+              },
+            ).whenComplete(
+              () => _close(),
             );
           },
           onError: (_) {
