@@ -269,6 +269,7 @@ class XhrClientConnection implements ClientConnection {
     // Overriding the mimetype allows us to stream and parse the data
     request.overrideMimeType('text/plain; charset=x-user-defined');
     request.responseType = 'text';
+    request.withCredentials = true;
   }
 
   @visibleForTesting
