@@ -159,6 +159,7 @@ abstract interface class IXMLHttpRequest {
   String get responseText;
   Map<String, String> get responseHeaders;
   int get status;
+  bool get withCredentials;
 
   set responseType(String responseType);
   set withCredentials(bool withCredentials);
@@ -202,6 +203,9 @@ class XMLHttpRequestImpl implements IXMLHttpRequest {
   String get responseText => _xhr.responseText;
   @override
   int get status => _xhr.status;
+
+  @override
+  bool get withCredentials => _xhr.withCredentials;
 
   @override
   set responseType(String responseType) {
@@ -298,12 +302,18 @@ class XhrClientConnection implements ClientConnection {
       request.withCredentials = true;
     }
     request.withCredentials = true;
+
+    print(
+      'Lowest layer (xhr transport) with credentials: ${request.withCredentials}',
+    );
+
     // Must set headers after calling open().
     _initializeRequest(request, metadata);
 
     final transportStream =
         _createXhrTransportStream(request, onError, _removeStream);
     _requests.add(transportStream);
+
     return transportStream;
   }
 
