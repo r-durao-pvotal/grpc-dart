@@ -296,6 +296,7 @@ class XhrClientConnection implements ClientConnection {
     if (callOptions is WebCallOptions && callOptions.withCredentials == true) {
       request.withCredentials = true;
     }
+    request.withCredentials = true;
     // Must set headers after calling open().
     _initializeRequest(request, metadata);
 
