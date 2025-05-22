@@ -19,7 +19,12 @@ import 'package:web/web.dart';
 
 void main() {
   final channel = GrpcWebClientChannel.xhr(Uri.parse('http://localhost:8080'));
-  final service = EchoServiceClient(channel);
+  final service = EchoServiceClient(
+    channel,
+    options: WebCallOptions(
+      withCredentials: true,
+    ),
+  );
   final app = EchoApp(service);
 
   final button = document.querySelector('#send') as HTMLButtonElement;

@@ -205,9 +205,6 @@ class XMLHttpRequestImpl implements IXMLHttpRequest {
   int get status => _xhr.status;
 
   @override
-  bool get withCredentials => _xhr.withCredentials;
-
-  @override
   set responseType(String responseType) {
     _xhr.responseType = responseType;
   }
@@ -252,6 +249,9 @@ class XMLHttpRequestImpl implements IXMLHttpRequest {
   XMLHttpRequest toXMLHttpRequest() {
     return _xhr;
   }
+
+  @override
+  bool get withCredentials => _xhr.withCredentials;
 }
 
 class XhrClientConnection implements ClientConnection {
@@ -297,15 +297,18 @@ class XhrClientConnection implements ClientConnection {
     }
 
     final request = createHttpRequest();
-    request.open('POST', requestUri.toString());
+
+    print('BEFORE IF STATEMENT: ${request.withCredentials}');
+
     if (callOptions is WebCallOptions && callOptions.withCredentials == true) {
       request.withCredentials = true;
     }
-    request.withCredentials = true;
 
-    print(
-      'Lowest layer (xhr transport) with credentials: ${request.withCredentials}',
-    );
+    print('AFTER IF STATEMENT: ${request.withCredentials}');
+
+    request.open('POST', requestUri.toString());
+
+    print('AFTER OPENING REQUEST STATEMENT: ${request.withCredentials}');
 
     // Must set headers after calling open().
     _initializeRequest(request, metadata);
