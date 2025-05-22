@@ -301,13 +301,13 @@ class XhrClientConnection implements ClientConnection {
 
     print('callOptions is a: ${callOptions.runtimeType}');
 
+    request.open('POST', requestUri.toString());
+
     if (callOptions is WebCallOptions && callOptions.withCredentials == true) {
       request.withCredentials = true;
     }
 
     print('AFTER IF STATEMENT: ${request.withCredentials}');
-
-    request.open('POST', requestUri.toString());
 
     print('AFTER OPENING REQUEST STATEMENT: ${request.withCredentials}');
 
