@@ -273,7 +273,6 @@ class XhrClientConnection implements ClientConnection {
     // Overriding the mimetype allows us to stream and parse the data
     request.overrideMimeType('text/plain; charset=x-user-defined');
     request.responseType = 'text';
-    request.withCredentials = true;
   }
 
   @visibleForTesting
@@ -299,6 +298,8 @@ class XhrClientConnection implements ClientConnection {
     final request = createHttpRequest();
 
     print('BEFORE IF STATEMENT: ${request.withCredentials}');
+
+    print('callOptions is a: ${callOptions.runtimeType}');
 
     if (callOptions is WebCallOptions && callOptions.withCredentials == true) {
       request.withCredentials = true;
