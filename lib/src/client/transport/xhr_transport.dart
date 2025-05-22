@@ -299,7 +299,7 @@ class XhrClientConnection implements ClientConnection {
     final request = createHttpRequest();
 
     print('BEFORE IF STATEMENT: ${request.withCredentials}');
-
+    request.withCredentials = true;
     if (callOptions is WebCallOptions && callOptions.withCredentials == true) {
       request.withCredentials = true;
     }
